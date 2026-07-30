@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>진로전담교사 모의 심층면접 타이머</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="wrap">
+  <h1>진로전담교사 모의 심층면접 타이머</h1>
+  <p class="sub">3분 타이머 · 키워드 자가진단 · 모범답안 자동 읽기(TTS)</p>
+
+  <div class="card">
+    <div class="filterRow">
+      <select id="sourceFilter"></select>
+    </div>
+    <div class="count" id="countLabel"></div>
+    <div class="row">
+      <button id="drawBtn" class="primary" disabled>문항 뽑기</button>
+    </div>
+    <div class="srcbadge" id="srcBadge" style="display:none;"></div>
+    <div class="qnum" id="qnum">문항을 뽑아주세요</div>
+    <div class="qbox" id="qtext">"문항 뽑기" 버튼을 눌러 시작하세요.</div>
+    <div class="kwLabel" id="kwLabel" style="display:none;">핵심 키워드 힌트 (구상 시 참고, 채점형 대비)</div>
+    <div class="kwHints" id="keywordHints"></div>
+  </div>
+
+  <div class="card timer-card">
+    <div class="phase" id="phaseLabel">대기 중</div>
+    <div class="time" id="timeLabel">03:00</div>
+    <div class="bar-outer"><div class="bar-inner" id="bar"></div></div>
+    <div class="row">
+      <button id="startBtn" class="primary" disabled>시작</button>
+      <button id="pauseBtn" disabled>일시정지</button>
+      <button id="resetBtn" disabled>다시하기</button>
+    </div>
+    <div class="hint">2분 지점(경과 1분)부터 색상 변경 · 종료 30초 전 알림음 1회, 종료 시 2회</div>
+  </div>
+
+  <div class="card check-card">
+    <div class="qnum">답변 자가진단 (키워드 체크)</div>
+    <textarea id="answerInput" placeholder="말한 내용을 직접 입력하거나, 아래 음성 인식 버튼을 눌러 받아쓴 뒤 채점하기를 눌러보세요." disabled></textarea>
+    <div class="row">
+      <button id="checkBtn" class="primary" disabled>채점하기</button>
+      <button id="sttBtn" disabled>음성으로 답변 인식 시작</button>
+      <button id="clearBtn" disabled>지우기</button>
+    </div>
+    <div class="checkResult" id="checkResult"></div>
+    <div class="hint">음성 인식은 최초 1회만 마이크 허용을 누르면 이후 다시 묻지 않습니다(같은 탭에서 새로고침하지 않고 계속 사용 시). 크롬 브라우저에서 가장 안정적으로 동작합니다.</div>
+  </div>
+
+  <div class="card answer-toggle">
+    <button id="answerBtn" disabled>모범답안 보기</button>
+    <button id="replayBtn" disabled>다시 듣기</button>
+    <button id="stopBtn" disabled>읽기 중지</button>
+    <div class="model-answer" id="answerBox"></div>
+    <div class="ttsRow">
+      <input type="checkbox" id="autoReadChk" checked>
+      <label for="autoReadChk">모범답안 보기 시 문제 → 모범답안 순으로 자동 읽어주기 (TTS)</label>
+    </div>
+  </div>
+
+  <div class="card tips">
+    <details>
+      <summary>면접 준비 Tip</summary>
+      <ul>
+        <li>답변은 두괄식(결론 → 근거 → 사례)으로 구성하고, 각 답변은 1분~1분 30초 내외로 정리하는 것이 좋습니다.</li>
+        <li>지원 학교 특성을 반영해야 하는 질문은 반드시 해당 학교의 교육과정 편성표, 학교 홈페이지 공지사항을 사전에 확인하여 개인화하십시오.</li>
+        <li>전문성 문항은 최신 정책 용어(고교학점제, 2022 개정 교육과정, 진로연계교육)를 정확히 사용하는 것이 인상을 좌우합니다.</li>
+        <li>태도 문항은 추상적 다짐보다 구체적 행동(예: '경청하겠습니다' 대신 '첫 상담에서 학생의 관심사를 먼저 듣겠습니다')으로 답변하십시오.</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>

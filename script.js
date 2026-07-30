@@ -1,0 +1,448 @@
+
+let QUESTIONS = [];
+const TOTAL_SECONDS = 180;
+const COLOR_SWITCH_AT = 120;
+const URGENT_AT = 30;
+
+let allSources = [];
+let currentSource = "전체";
+let pool = [];
+let current = null;
+
+let remaining = TOTAL_SECONDS;
+let timerId = null;
+let running = false;
+let warned30 = false;
+
+const sourceFilterEl = document.getElementById("sourceFilter");
+const countLabel = document.getElementById("countLabel");
+const qnumEl = document.getElementById("qnum");
+const qtextEl = document.getElementById("qtext");
+const srcBadgeEl = document.getElementById("srcBadge");
+const phaseEl = document.getElementById("phaseLabel");
+const timeEl = document.getElementById("timeLabel");
+const barEl = document.getElementById("bar");
+const drawBtn = document.getElementById("drawBtn");
+const startBtn = document.getElementById("startBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const resetBtn = document.getElementById("resetBtn");
+const answerBtn = document.getElementById("answerBtn");
+const answerBox = document.getElementById("answerBox");
+const replayBtn = document.getElementById("replayBtn");
+const stopBtn = document.getElementById("stopBtn");
+const autoReadChk = document.getElementById("autoReadChk");
+const kwLabelEl = document.getElementById("kwLabel");
+const keywordHintsEl = document.getElementById("keywordHints");
+const answerInputEl = document.getElementById("answerInput");
+const checkBtn = document.getElementById("checkBtn");
+const sttBtn = document.getElementById("sttBtn");
+const clearBtn = document.getElementById("clearBtn");
+const checkResultEl = document.getElementById("checkResult");
+
+function buildFilterOptions() {
+  sourceFilterEl.innerHTML = "";
+  const optAll = document.createElement("option");
+  optAll.value = "전체";
+  optAll.textContent = "전체 문항 (" + QUESTIONS.length + "문항)";
+  sourceFilterEl.appendChild(optAll);
+  allSources.forEach(src => {
+    const cnt = QUESTIONS.filter(q => q.source === src).length;
+    const opt = document.createElement("option");
+    opt.value = src;
+    opt.textContent = src + " (" + cnt + "문항)";
+    sourceFilterEl.appendChild(opt);
+  });
+}
+
+function currentQuestionSet() {
+  if (currentSource === "전체") return QUESTIONS;
+  return QUESTIONS.filter(q => q.source === currentSource);
+}
+
+function refillPool() {
+  const set = currentQuestionSet();
+  const idxs = set.map((_, i) => i);
+  for (let i = idxs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+  }
+  pool = idxs;
+}
+
+function updateCountLabel() {
+  const set = currentQuestionSet();
+  countLabel.textContent = "선택된 범위: " + currentSource + " · 총 " + set.length + "문항 중 무작위 출제";
+}
+
+function beep(freq, dur) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur / 1000);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + dur / 1000);
+  } catch (e) {}
+}
+
+const ttsSupported = "speechSynthesis" in window;
+
+function speakText(text) {
+  if (!ttsSupported || !text) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "ko-KR";
+  utter.rate = 1;
+  utter.onstart = () => { stopBtn.disabled = false; };
+  utter.onend = () => { stopBtn.disabled = true; };
+  utter.onerror = () => { stopBtn.disabled = true; };
+  window.speechSynthesis.speak(utter);
+}
+
+function speakQA(item) {
+  if (!ttsSupported || !item) return;
+  window.speechSynthesis.cancel();
+  const qUtter = new SpeechSynthesisUtterance(item.q);
+  qUtter.lang = "ko-KR";
+  qUtter.rate = 1;
+  const aUtter = new SpeechSynthesisUtterance(item.a);
+  aUtter.lang = "ko-KR";
+  aUtter.rate = 1;
+  qUtter.onstart = () => { stopBtn.disabled = false; };
+  aUtter.onend = () => { stopBtn.disabled = true; };
+  aUtter.onerror = () => { stopBtn.disabled = true; };
+  qUtter.onerror = () => { stopBtn.disabled = true; };
+  window.speechSynthesis.speak(qUtter);
+  window.speechSynthesis.speak(aUtter);
+}
+
+function stopSpeaking() {
+  if (ttsSupported) window.speechSynthesis.cancel();
+  stopBtn.disabled = true;
+}
+
+if (!ttsSupported) {
+  autoReadChk.checked = false;
+  autoReadChk.disabled = true;
+  document.querySelector(".ttsRow label").textContent = "이 브라우저는 음성 읽기(TTS)를 지원하지 않습니다.";
+}
+
+function formatTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, "0");
+  const s = (sec % 60).toString().padStart(2, "0");
+  return m + ":" + s;
+}
+
+function currentStage() {
+  if (remaining <= 0) return "done";
+  if (remaining <= URGENT_AT) return "urgent";
+  if (remaining <= COLOR_SWITCH_AT) return "answer";
+  return "normal";
+}
+
+function updateDisplay() {
+  timeEl.textContent = formatTime(Math.max(0, remaining));
+  const pct = Math.max(0, (remaining / TOTAL_SECONDS) * 100);
+  barEl.style.width = pct + "%";
+
+  const stage = currentStage();
+  timeEl.classList.remove("answer", "urgent");
+  barEl.classList.remove("answer", "urgent");
+
+  if (stage === "done") {
+    phaseEl.textContent = "종료";
+    phaseEl.className = "phase done";
+  } else if (stage === "urgent") {
+    timeEl.classList.add("urgent");
+    barEl.classList.add("urgent");
+    phaseEl.textContent = "답변 중 (종료 임박)";
+    phaseEl.className = "phase urgent";
+  } else if (stage === "answer") {
+    timeEl.classList.add("answer");
+    barEl.classList.add("answer");
+    phaseEl.textContent = "답변 중";
+    phaseEl.className = "phase answer";
+  } else {
+    phaseEl.textContent = "구상 중";
+    phaseEl.className = "phase";
+  }
+}
+
+function normalizeForMatch(s) {
+  return (s || "").replace(/s+/g, "").toLowerCase();
+}
+
+function renderKeywordHints(matchedSet) {
+  keywordHintsEl.innerHTML = "";
+  const kws = (current && current.keywords) ? current.keywords : [];
+  kws.forEach(k => {
+    const span = document.createElement("span");
+    let cls = "kw-chip";
+    if (matchedSet) cls += matchedSet.has(k) ? " matched" : " missing";
+    span.className = cls;
+    span.textContent = k;
+    keywordHintsEl.appendChild(span);
+  });
+  kwLabelEl.style.display = kws.length ? "block" : "none";
+}
+
+function checkKeywords() {
+  if (!current) return;
+  const kws = current.keywords || [];
+  const answerNorm = normalizeForMatch(answerInputEl.value);
+  const matchedSet = new Set();
+  kws.forEach(k => {
+    if (answerNorm.length > 0 && answerNorm.includes(normalizeForMatch(k))) matchedSet.add(k);
+  });
+  renderKeywordHints(matchedSet);
+  const pct = kws.length ? Math.round((matchedSet.size / kws.length) * 100) : 0;
+  checkResultEl.textContent = kws.length
+    ? ("핵심 키워드 " + kws.length + "개 중 " + matchedSet.size + "개 포함 (" + pct + "%)")
+    : "이 문항에는 등록된 키워드가 없습니다.";
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let recognizing = false;
+let manuallyStopped = true;
+let restartTimer = null;
+
+function attachRecognitionHandlers(r) {
+  r.lang = "ko-KR";
+  r.continuous = true;
+  r.interimResults = true;
+  r.onresult = (e) => {
+    let finalText = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+    }
+    if (finalText.trim()) {
+      answerInputEl.value = (answerInputEl.value ? answerInputEl.value + " " : "") + finalText.trim();
+    }
+  };
+  r.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      manuallyStopped = true;
+      recognizing = false;
+      sttBtn.textContent = "마이크 권한을 허용해주세요";
+    }
+    // other errors (no-speech, network, aborted) are recovered from in onend below
+  };
+  r.onend = () => {
+    if (recognizing && !manuallyStopped) {
+      // Chrome ends the recognition session after ~60s even in continuous mode;
+      // if the user never asked to stop, transparently restart so it feels continuous.
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        try { recognition.start(); } catch (e) {}
+      }, 250);
+    } else {
+      recognizing = false;
+      sttBtn.textContent = "음성으로 답변 인식 시작";
+      checkKeywords();
+    }
+  };
+  return r;
+}
+
+if (SR) {
+  recognition = attachRecognitionHandlers(new SR());
+} else {
+  sttBtn.disabled = true;
+  sttBtn.textContent = "음성 인식 미지원 브라우저";
+}
+
+function stopRecognition() {
+  manuallyStopped = true;
+  clearTimeout(restartTimer);
+  if (SR && recognizing) {
+    try { recognition.stop(); } catch (e) {}
+  }
+  recognizing = false;
+  sttBtn.textContent = "음성으로 답변 인식 시작";
+}
+
+function drawQuestion() {
+  stopSpeaking();
+  stopRecognition();
+  if (pool.length === 0) refillPool();
+  const set = currentQuestionSet();
+  const idx = pool.pop();
+  current = set[idx];
+  qnumEl.textContent = "문항 (" + (set.length - pool.length) + " / " + set.length + ")";
+  qtextEl.textContent = current.q;
+  srcBadgeEl.style.display = "inline-block";
+  srcBadgeEl.textContent = "출처: " + current.source;
+  answerBox.classList.remove("show");
+  answerBox.textContent = "";
+  answerBtn.textContent = "모범답안 보기";
+  answerBtn.disabled = false;
+  replayBtn.disabled = true;
+  stopBtn.disabled = true;
+  answerInputEl.value = "";
+  answerInputEl.disabled = false;
+  checkBtn.disabled = false;
+  clearBtn.disabled = false;
+  if (SR) sttBtn.disabled = false;
+  checkResultEl.textContent = "";
+  renderKeywordHints(null);
+  resetTimerState();
+  startBtn.disabled = false;
+  resetBtn.disabled = false;
+}
+
+function resetTimerState() {
+  clearInterval(timerId);
+  timerId = null;
+  running = false;
+  remaining = TOTAL_SECONDS;
+  warned30 = false;
+  updateDisplay();
+  startBtn.disabled = current === null;
+  startBtn.textContent = "시작";
+  pauseBtn.disabled = true;
+  pauseBtn.textContent = "일시정지";
+}
+
+function tick() {
+  remaining -= 1;
+  if (remaining === COLOR_SWITCH_AT) {
+    beep(660, 180);
+  }
+  if (remaining === URGENT_AT && !warned30) {
+    beep(880, 250);
+    warned30 = true;
+  }
+  if (remaining <= 0) {
+    clearInterval(timerId);
+    timerId = null;
+    running = false;
+    beep(523, 200);
+    setTimeout(() => beep(523, 200), 300);
+    startBtn.disabled = true;
+    pauseBtn.disabled = true;
+  }
+  updateDisplay();
+}
+
+sourceFilterEl.addEventListener("change", () => {
+  stopSpeaking();
+  stopRecognition();
+  currentSource = sourceFilterEl.value;
+  updateCountLabel();
+  pool = [];
+  current = null;
+  qnumEl.textContent = "문항을 뽑아주세요";
+  qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
+  srcBadgeEl.style.display = "none";
+  answerBtn.disabled = true;
+  replayBtn.disabled = true;
+  stopBtn.disabled = true;
+  answerBox.classList.remove("show");
+  answerBox.textContent = "";
+  answerInputEl.value = "";
+  answerInputEl.disabled = true;
+  checkBtn.disabled = true;
+  clearBtn.disabled = true;
+  sttBtn.disabled = true;
+  checkResultEl.textContent = "";
+  renderKeywordHints(null);
+  keywordHintsEl.innerHTML = "";
+  kwLabelEl.style.display = "none";
+  resetTimerState();
+  startBtn.disabled = true;
+  resetBtn.disabled = true;
+});
+
+drawBtn.addEventListener("click", drawQuestion);
+
+startBtn.addEventListener("click", () => {
+  if (!timerId && remaining > 0) {
+    timerId = setInterval(tick, 1000);
+    running = true;
+    startBtn.disabled = true;
+    pauseBtn.disabled = false;
+  }
+});
+
+pauseBtn.addEventListener("click", () => {
+  if (timerId) {
+    clearInterval(timerId);
+    timerId = null;
+    running = false;
+    startBtn.disabled = false;
+    startBtn.textContent = "계속";
+    pauseBtn.disabled = true;
+  }
+});
+
+resetBtn.addEventListener("click", () => {
+  resetTimerState();
+});
+
+answerBtn.addEventListener("click", () => {
+  const showing = answerBox.classList.toggle("show");
+  answerBtn.textContent = showing ? "모범답안 숨기기" : "모범답안 보기";
+  if (showing && current !== null) {
+    answerBox.textContent = current.a;
+    replayBtn.disabled = false;
+    if (autoReadChk.checked) speakQA(current);
+  } else {
+    stopSpeaking();
+  }
+});
+
+replayBtn.addEventListener("click", () => {
+  if (current !== null) speakQA(current);
+});
+
+stopBtn.addEventListener("click", () => {
+  stopSpeaking();
+});
+
+checkBtn.addEventListener("click", () => {
+  checkKeywords();
+});
+
+clearBtn.addEventListener("click", () => {
+  answerInputEl.value = "";
+  checkResultEl.textContent = "";
+  renderKeywordHints(null);
+});
+
+sttBtn.addEventListener("click", () => {
+  if (!SR) return;
+  if (!recognizing) {
+    manuallyStopped = false;
+    try {
+      recognition.start();
+      recognizing = true;
+      sttBtn.textContent = "인식 중지 (듣는 중...)";
+    } catch (e) {}
+  } else {
+    stopRecognition();
+  }
+});
+
+fetch("./questions.json")
+  .then((res) => {
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  })
+  .then((data) => {
+    QUESTIONS = data;
+    allSources = Array.from(new Set(QUESTIONS.map((q) => q.source)));
+    buildFilterOptions();
+    updateCountLabel();
+    refillPool();
+    drawBtn.disabled = false;
+  })
+  .catch((err) => {
+    countLabel.textContent = "문항 데이터를 불러오지 못했습니다. questions.json 파일이 같은 폴더에 있는지 확인해주세요.";
+    console.error(err);
+  });
