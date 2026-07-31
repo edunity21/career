@@ -97,7 +97,7 @@ function speakText(text) {
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "ko-KR";
-  utter.rate = 1;
+  utter.rate = 0.8;
   utter.onstart = () => { stopBtn.disabled = false; };
   utter.onend = () => { stopBtn.disabled = true; };
   utter.onerror = () => { stopBtn.disabled = true; };
@@ -109,10 +109,10 @@ function speakQA(item) {
   window.speechSynthesis.cancel();
   const qUtter = new SpeechSynthesisUtterance(item.q);
   qUtter.lang = "ko-KR";
-  qUtter.rate = 1;
+  qUtter.rate = 0.8;
   const aUtter = new SpeechSynthesisUtterance(item.a);
   aUtter.lang = "ko-KR";
-  aUtter.rate = 1;
+  aUtter.rate = 0.8;
   qUtter.onstart = () => { stopBtn.disabled = false; };
   aUtter.onend = () => { stopBtn.disabled = true; };
   aUtter.onerror = () => { stopBtn.disabled = true; };
