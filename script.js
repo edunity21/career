@@ -78,9 +78,22 @@ function updateCountLabel() {
   countLabel.textContent = "선택된 범위: " + currentSource + " · 총 " + set.length + "문항 중 무작위 출제";
 }
 
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  // 모바일은 사용자 조작 전까지 suspended 상태이므로 깨워준다
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
 function beep(freq, dur) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = freq;
@@ -96,36 +109,66 @@ function beep(freq, dur) {
 
 const ttsSupported = "speechSynthesis" in window;
 
+// 모바일 브라우저는 목록이 비동기로 채워지므로 미리 받아둔다
+let koVoice = null;
+function loadVoices() {
+  if (!ttsSupported) return;
+  const vs = window.speechSynthesis.getVoices() || [];
+  koVoice = vs.find(v => v.lang && v.lang.toLowerCase().startsWith("ko")) || null;
+}
+if (ttsSupported) {
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function makeUtter(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ko-KR";
+  if (koVoice) u.voice = koVoice;
+  u.rate = 0.8;
+  u.pitch = 1;
+  u.volume = 1;
+  return u;
+}
+
+// 안드로이드에서 긴 문장이 중간에 끊기는 것을 막기 위해 문장 단위로 쪼갠다
+function splitForSpeech(text) {
+  // lookbehind 미지원 브라우저(구형 안드로이드 웹뷰)도 동작하도록 단순 치환 방식 사용
+  const marked = String(text || "")
+    .replace(/([.!?。])\s+/g, "$1\u0001")
+    .replace(/\n+/g, "\u0001");
+  const parts = marked.split("\u0001").map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts : [String(text || "")];
+}
+
+let speakQueue = [];
+function speakSequence(chunks) {
+  if (!ttsSupported || !chunks.length) return;
+  window.speechSynthesis.cancel();
+  speakQueue = chunks.slice();
+  stopBtn.disabled = false;
+  const next = () => {
+    if (!speakQueue.length) { stopBtn.disabled = true; return; }
+    const u = makeUtter(speakQueue.shift());
+    u.onend = next;
+    u.onerror = () => { stopBtn.disabled = true; speakQueue = []; };
+    window.speechSynthesis.speak(u);
+  };
+  next();
+}
+
 function speakText(text) {
   if (!ttsSupported || !text) return;
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = "ko-KR";
-  utter.rate = 0.8;
-  utter.onstart = () => { stopBtn.disabled = false; };
-  utter.onend = () => { stopBtn.disabled = true; };
-  utter.onerror = () => { stopBtn.disabled = true; };
-  window.speechSynthesis.speak(utter);
+  speakSequence(splitForSpeech(text));
 }
 
 function speakQA(item) {
   if (!ttsSupported || !item) return;
-  window.speechSynthesis.cancel();
-  const qUtter = new SpeechSynthesisUtterance(item.q);
-  qUtter.lang = "ko-KR";
-  qUtter.rate = 0.8;
-  const aUtter = new SpeechSynthesisUtterance(item.a);
-  aUtter.lang = "ko-KR";
-  aUtter.rate = 0.8;
-  qUtter.onstart = () => { stopBtn.disabled = false; };
-  aUtter.onend = () => { stopBtn.disabled = true; };
-  aUtter.onerror = () => { stopBtn.disabled = true; };
-  qUtter.onerror = () => { stopBtn.disabled = true; };
-  window.speechSynthesis.speak(qUtter);
-  window.speechSynthesis.speak(aUtter);
+  speakSequence(splitForSpeech(item.q).concat(splitForSpeech(item.a)));
 }
 
 function stopSpeaking() {
+  speakQueue = [];
   if (ttsSupported) window.speechSynthesis.cancel();
   stopBtn.disabled = true;
 }
@@ -471,6 +514,25 @@ sttBtn.addEventListener("click", () => {
     stopRecognition();
   }
 });
+
+// 모바일(삼성 인터넷/크롬)은 첫 사용자 조작 전에는 소리 재생이 차단된다.
+// 아무 버튼이나 처음 누를 때 오디오와 TTS 엔진을 한 번 깨워둔다.
+let audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  getAudioCtx();
+  if (ttsSupported) {
+    try {
+      const warm = new SpeechSynthesisUtterance(" ");
+      warm.volume = 0;
+      window.speechSynthesis.speak(warm);
+    } catch (e) {}
+    loadVoices();
+  }
+}
+document.addEventListener("click", unlockAudio, { once: false });
+document.addEventListener("touchstart", unlockAudio, { once: false });
 
 fetch("./questions.json")
   .then((res) => {
