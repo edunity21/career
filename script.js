@@ -8,6 +8,8 @@ let allSources = [];
 let currentSource = "전체";
 let pool = [];
 let current = null;
+let orderRandom = false; // false: 문항 번호 순서대로, true: 무작위
+let seqIndex = 0;        // 순서 모드에서 다음에 출제할 문항 위치
 
 let remaining = TOTAL_SECONDS;
 let timerId = null;
@@ -23,6 +25,7 @@ const phaseEl = document.getElementById("phaseLabel");
 const timeEl = document.getElementById("timeLabel");
 const barEl = document.getElementById("bar");
 const drawBtn = document.getElementById("drawBtn");
+const orderBtn = document.getElementById("orderBtn");
 const startBtn = document.getElementById("startBtn");
 const pauseBtn = document.getElementById("pauseBtn");
 const resetBtn = document.getElementById("resetBtn");
@@ -270,11 +273,19 @@ function stopRecognition() {
 function drawQuestion() {
   stopSpeaking();
   stopRecognition();
-  if (pool.length === 0) refillPool();
   const set = currentQuestionSet();
-  const idx = pool.pop();
+  let idx, drawnCount;
+  if (orderRandom) {
+    if (pool.length === 0) refillPool();
+    idx = pool.pop();
+    drawnCount = set.length - pool.length;
+  } else {
+    idx = seqIndex % set.length;
+    seqIndex += 1;
+    drawnCount = idx + 1;
+  }
   current = set[idx];
-  qnumEl.textContent = "문항 (" + (set.length - pool.length) + " / " + set.length + ")";
+  qnumEl.textContent = "문항 (" + drawnCount + " / " + set.length + ")";
   qtextEl.textContent = current.q;
   srcBadgeEl.style.display = "inline-block";
   srcBadgeEl.textContent = "출처: " + current.source;
@@ -336,6 +347,7 @@ sourceFilterEl.addEventListener("change", () => {
   currentSource = sourceFilterEl.value;
   updateCountLabel();
   pool = [];
+  seqIndex = 0;
   current = null;
   qnumEl.textContent = "문항을 뽑아주세요";
   qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
@@ -360,6 +372,12 @@ sourceFilterEl.addEventListener("change", () => {
 });
 
 drawBtn.addEventListener("click", drawQuestion);
+
+orderBtn.addEventListener("click", () => {
+  orderRandom = !orderRandom;
+  orderBtn.textContent = orderRandom ? "출제: 무작위" : "출제: 순서대로";
+  pool = []; // 무작위 모드로 전환 시 새로 섞음 (순서 모드는 seqIndex로 이어서 진행)
+});
 
 startBtn.addEventListener("click", () => {
   if (!timerId && remaining > 0) {
