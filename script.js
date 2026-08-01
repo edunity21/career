@@ -25,6 +25,7 @@ const phaseEl = document.getElementById("phaseLabel");
 const timeEl = document.getElementById("timeLabel");
 const barEl = document.getElementById("bar");
 const drawBtn = document.getElementById("drawBtn");
+const prevBtn = document.getElementById("prevBtn");
 const orderBtn = document.getElementById("orderBtn");
 const startBtn = document.getElementById("startBtn");
 const pauseBtn = document.getElementById("pauseBtn");
@@ -271,8 +272,6 @@ function stopRecognition() {
 }
 
 function drawQuestion() {
-  stopSpeaking();
-  stopRecognition();
   const set = currentQuestionSet();
   let idx, drawnCount;
   if (orderRandom) {
@@ -284,6 +283,22 @@ function drawQuestion() {
     seqIndex += 1;
     drawnCount = idx + 1;
   }
+  showQuestion(set, idx, drawnCount);
+}
+
+function prevQuestion() {
+  const set = currentQuestionSet();
+  if (orderRandom || current === null) return;
+  // seqIndex는 '다음에 출제할 위치'이므로 2를 빼야 직전 문항이 된다
+  seqIndex = (seqIndex - 2 + set.length) % set.length;
+  const idx = seqIndex;
+  seqIndex += 1;
+  showQuestion(set, idx, idx + 1);
+}
+
+function showQuestion(set, idx, drawnCount) {
+  stopSpeaking();
+  stopRecognition();
   current = set[idx];
   qnumEl.textContent = "문항 (" + drawnCount + " / " + set.length + ")";
   qtextEl.textContent = current.q;
@@ -305,6 +320,12 @@ function drawQuestion() {
   resetTimerState();
   startBtn.disabled = false;
   resetBtn.disabled = false;
+  updatePrevBtn();
+}
+
+function updatePrevBtn() {
+  // 순서대로 모드에서, 문항을 한 번이라도 뽑은 뒤에만 활성화
+  prevBtn.disabled = orderRandom || current === null;
 }
 
 function resetTimerState() {
@@ -369,6 +390,7 @@ sourceFilterEl.addEventListener("change", () => {
   resetTimerState();
   startBtn.disabled = true;
   resetBtn.disabled = true;
+  updatePrevBtn();
 });
 
 drawBtn.addEventListener("click", drawQuestion);
@@ -377,7 +399,10 @@ orderBtn.addEventListener("click", () => {
   orderRandom = !orderRandom;
   orderBtn.textContent = orderRandom ? "출제: 무작위" : "출제: 순서대로";
   pool = []; // 무작위 모드로 전환 시 새로 섞음 (순서 모드는 seqIndex로 이어서 진행)
+  updatePrevBtn();
 });
+
+prevBtn.addEventListener("click", prevQuestion);
 
 startBtn.addEventListener("click", () => {
   if (!timerId && remaining > 0) {
