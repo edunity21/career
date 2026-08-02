@@ -10,42 +10,43 @@ let pool = [];
 let current = null;
 let orderRandom = false; // false: 문항 번호 순서대로, true: 무작위
 let seqIndex = 0;        // 순서 모드에서 다음에 출제할 문항 위치
+let hasDrawn = false;
 
 let remaining = TOTAL_SECONDS;
 let timerId = null;
-let running = false;
 let warned30 = false;
 
-const sourceFilterEl = document.getElementById("sourceFilter");
-const countLabel = document.getElementById("countLabel");
-const qnumEl = document.getElementById("qnum");
-const qtextEl = document.getElementById("qtext");
-const srcBadgeEl = document.getElementById("srcBadge");
-const phaseEl = document.getElementById("phaseLabel");
-const timeEl = document.getElementById("timeLabel");
-const barEl = document.getElementById("bar");
-const drawBtn = document.getElementById("drawBtn");
-const prevBtn = document.getElementById("prevBtn");
-const orderBtn = document.getElementById("orderBtn");
-const startBtn = document.getElementById("startBtn");
-const pauseBtn = document.getElementById("pauseBtn");
-const resetBtn = document.getElementById("resetBtn");
-const cardBtn = document.getElementById("cardBtn");
-const cardReadBtn = document.getElementById("cardReadBtn");
-const cardBox = document.getElementById("cardBox");
-const answerBtn = document.getElementById("answerBtn");
-const answerReadBtn = document.getElementById("answerReadBtn");
-const answerBox = document.getElementById("answerBox");
-const stopBtn = document.getElementById("stopBtn");
-const autoReadChk = document.getElementById("autoReadChk");
-const nowReadingEl = document.getElementById("nowReading");
-const kwLabelEl = document.getElementById("kwLabel");
-const keywordHintsEl = document.getElementById("keywordHints");
-const answerInputEl = document.getElementById("answerInput");
-const checkBtn = document.getElementById("checkBtn");
-const sttBtn = document.getElementById("sttBtn");
-const clearBtn = document.getElementById("clearBtn");
-const checkResultEl = document.getElementById("checkResult");
+const $ = (id) => document.getElementById(id);
+const sourceFilterEl = $("sourceFilter");
+const countLabel = $("countLabel");
+const qnumEl = $("qnum");
+const qtextEl = $("qtext");
+const srcBadgeEl = $("srcBadge");
+const phaseEl = $("phaseLabel");
+const timeEl = $("timeLabel");
+const barEl = $("bar");
+const drawBtn = $("drawBtn");
+const prevBtn = $("prevBtn");
+const orderSeg = $("orderSeg");
+const timerBtn = $("timerBtn");
+const resetBtn = $("resetBtn");
+const cardBtn = $("cardBtn");
+const cardBtnText = $("cardBtnText");
+const cardReadBtn = $("cardReadBtn");
+const cardBox = $("cardBox");
+const answerBtn = $("answerBtn");
+const answerBtnText = $("answerBtnText");
+const answerReadBtn = $("answerReadBtn");
+const answerBox = $("answerBox");
+const autoReadChk = $("autoReadChk");
+const nowReadingEl = $("nowReading");
+const kwLabelEl = $("kwLabel");
+const keywordHintsEl = $("keywordHints");
+const answerInputEl = $("answerInput");
+const checkBtn = $("checkBtn");
+const sttBtn = $("sttBtn");
+const clearBtn = $("clearBtn");
+const checkResultEl = $("checkResult");
 
 /* ------------------------------------------------------------------
    데이터 접근 헬퍼
@@ -68,19 +69,19 @@ function answerFullOf(it) {
   const parts = [answerCoreOf(it), answerRespOf(it)].filter(Boolean);
   return parts.length ? parts.join("\n\n") : ((it && it.a) || "");
 }
-const hasCard = (it) => cardCoreOf(it).length > 0 || cardRespOf(it).length > 0;
 
+/* --------------------------- 문항 목록 --------------------------- */
 function buildFilterOptions() {
   sourceFilterEl.innerHTML = "";
   const optAll = document.createElement("option");
   optAll.value = "전체";
-  optAll.textContent = "전체 문항 (" + QUESTIONS.length + "문항)";
+  optAll.textContent = "전체 문항 (" + QUESTIONS.length + ")";
   sourceFilterEl.appendChild(optAll);
   allSources.forEach(src => {
     const cnt = QUESTIONS.filter(q => q.source === src).length;
     const opt = document.createElement("option");
     opt.value = src;
-    opt.textContent = src + " (" + cnt + "문항)";
+    opt.textContent = src + " (" + cnt + ")";
     sourceFilterEl.appendChild(opt);
   });
 }
@@ -102,10 +103,11 @@ function refillPool() {
 
 function updateCountLabel() {
   const set = currentQuestionSet();
-  const how = orderRandom ? "무작위 출제" : "순서대로 출제";
-  countLabel.textContent = "선택된 범위: " + currentSource + " · 총 " + set.length + "문항 " + how;
+  countLabel.textContent = currentSource + " · 총 " + set.length + "문항 "
+    + (orderRandom ? "무작위 출제" : "순서대로 출제");
 }
 
+/* ------------------------------ 소리 ------------------------------ */
 let audioCtx = null;
 function getAudioCtx() {
   if (!audioCtx) {
@@ -135,11 +137,14 @@ function beep(freq, dur) {
   } catch (e) {}
 }
 
-/* ------------------------------ TTS ------------------------------ */
+/* ------------------------------- TTS ------------------------------- */
 const ttsSupported = "speechSynthesis" in window;
-
 let koVoice = null;
-let ttsRate = 0.8;
+let ttsRate = 1;
+let speakQueue = [];
+let speakingNow = null;
+let speakingLabel = "";   // "" | "요약 카드" | "모범답안"
+
 function loadVoices() {
   if (!ttsSupported) return;
   const vs = window.speechSynthesis.getVoices() || [];
@@ -169,61 +174,58 @@ function splitForSpeech(text) {
   return parts.length ? parts : [String(text || "")];
 }
 
-let speakQueue = [];
-let speakingNow = null;
-let speakingLabel = "";
+// 듣기 버튼은 재생 중이면 '중지'로 바뀌어, 누른 자리에서 바로 멈출 수 있다
+function updateReadButtons() {
+  const pairs = [[cardReadBtn, "요약 카드"], [answerReadBtn, "모범답안"]];
+  pairs.forEach(([btn, label]) => {
+    const on = speakingLabel === label;
+    btn.textContent = on ? "■ 중지" : "▶ 듣기";
+    btn.classList.toggle("playing", on);
+  });
+  nowReadingEl.textContent = speakingLabel ? "읽는 중 · " + speakingLabel : "";
+}
 
 function speakSequence(chunks, label) {
   if (!ttsSupported || !chunks.length) return;
   window.speechSynthesis.cancel();
   speakQueue = chunks.slice();
   speakingLabel = label || "";
-  stopBtn.disabled = false;
-  nowReadingEl.textContent = speakingLabel ? "읽는 중: " + speakingLabel : "";
+  updateReadButtons();
   const next = () => {
-    if (!speakQueue.length) { finishSpeaking(); return; }
+    if (!speakQueue.length) { stopSpeaking(); return; }
     speakingNow = speakQueue.shift();
     const u = makeUtter(speakingNow);
     u.onend = next;
-    u.onerror = () => finishSpeaking();
+    u.onerror = () => stopSpeaking();
     window.speechSynthesis.speak(u);
   };
   next();
 }
 
-function finishSpeaking() {
+function stopSpeaking() {
   speakQueue = [];
   speakingNow = null;
-  stopBtn.disabled = true;
-  nowReadingEl.textContent = "";
+  speakingLabel = "";
+  if (ttsSupported) window.speechSynthesis.cancel();
+  updateReadButtons();
 }
 
 // 배속을 바꾸면 읽던 문장부터 새 속도로 이어서 다시 읽는다
 function applyRate(rate) {
   ttsRate = rate;
-  document.querySelectorAll(".speedBtn").forEach(b => {
+  document.querySelectorAll("#speedSeg .segBtn").forEach(b => {
     b.classList.toggle("active", parseFloat(b.dataset.rate) === rate);
   });
-  const isSpeaking = ttsSupported && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
-  if (isSpeaking && speakingNow) {
+  if (speakingNow && speakingLabel) {
     speakSequence([speakingNow].concat(speakQueue), speakingLabel);
   }
 }
 
-function stopSpeaking() {
-  speakQueue = [];
-  speakingNow = null;
-  if (ttsSupported) window.speechSynthesis.cancel();
-  stopBtn.disabled = true;
-  nowReadingEl.textContent = "";
-}
-
-// ① 요약 카드 읽기: 문제 → 핵심정리 항목 → 대응방안 항목
+// 요약 카드 읽기: 문제 → 핵심정리 항목 → 대응방안 항목
 function speakCard(item) {
   if (!ttsSupported || !item) return;
   const parts = splitForSpeech(item.q);
-  const core = cardCoreOf(item);
-  const resp = cardRespOf(item);
+  const core = cardCoreOf(item), resp = cardRespOf(item);
   if (core.length) {
     parts.push("핵심정리.");
     core.forEach(b => parts.push.apply(parts, splitForSpeech(b)));
@@ -235,7 +237,7 @@ function speakCard(item) {
   speakSequence(parts, "요약 카드");
 }
 
-// ② 모범답안 읽기: 문제 → 구술형 전문
+// 모범답안 읽기: 문제 → 구술형 전문
 function speakAnswer(item) {
   if (!ttsSupported || !item) return;
   const parts = splitForSpeech(item.q);
@@ -243,30 +245,33 @@ function speakAnswer(item) {
   speakSequence(parts, "모범답안");
 }
 
+// 듣기 버튼: 같은 카드를 읽는 중이면 중지, 아니면 그 카드를 읽기 시작
+function toggleRead(kind) {
+  if (!current) return;
+  const label = kind === "card" ? "요약 카드" : "모범답안";
+  if (speakingLabel === label) { stopSpeaking(); return; }
+  (kind === "card" ? speakCard : speakAnswer)(current);
+}
+
 if (!ttsSupported) {
   autoReadChk.checked = false;
   autoReadChk.disabled = true;
-  document.querySelector(".ttsRow label").textContent = "이 브라우저는 음성 읽기(TTS)를 지원하지 않습니다.";
-  cardReadBtn.title = answerReadBtn.title = "이 브라우저는 음성 읽기를 지원하지 않습니다.";
+  nowReadingEl.textContent = "이 브라우저는 음성 읽기를 지원하지 않습니다";
 }
 
 /* --------------------------- 렌더링 --------------------------- */
 const esc = (s) => String(s == null ? "" : s)
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;");
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function bulletColumn(title, cls, items) {
   return '<div class="sumCol ' + cls + '">'
-    + '<div class="sumHead ' + cls + '">' + title + '</div>'
+    + '<div class="sumHead ' + cls + '">' + title + "</div>"
     + '<ul class="sumList">' + items.map(b => "<li>" + esc(b) + "</li>").join("") + "</ul>"
     + "</div>";
 }
 
-// ① 요약 카드 — 짧은 항목 2단
 function renderCard(item) {
-  const core = cardCoreOf(item);
-  const resp = cardRespOf(item);
+  const core = cardCoreOf(item), resp = cardRespOf(item);
   if (!core.length && !resp.length) {
     cardBox.innerHTML = '<div class="placeholder">이 문항에는 요약 카드 자료가 없습니다. 모범답안을 확인해주세요.</div>';
     return;
@@ -274,39 +279,53 @@ function renderCard(item) {
   let html = '<div class="sumGrid">';
   if (core.length) html += bulletColumn("핵심정리", "core", core);
   if (resp.length) html += bulletColumn("대응방안", "resp", resp);
-  html += "</div>";
-  cardBox.innerHTML = html;
+  cardBox.innerHTML = html + "</div>";
 }
 
-// ② 모범답안 — 구술형 문장
 function renderAnswer(item) {
-  const core = answerCoreOf(item);
-  const resp = answerRespOf(item);
+  const core = answerCoreOf(item), resp = answerRespOf(item);
   let html = "";
-  if (core) {
-    html += '<div class="ansSec"><div class="ansHead core">■ 핵심정리</div>'
-      + '<div class="ansBody">' + esc(core) + "</div></div>";
-  }
-  if (resp) {
-    html += '<div class="ansSec"><div class="ansHead resp">■ 대응방안</div>'
-      + '<div class="ansBody">' + esc(resp) + "</div></div>";
-  }
+  if (core) html += '<div class="ansSec"><div class="ansHead core">■ 핵심정리</div><div class="ansBody">' + esc(core) + "</div></div>";
+  if (resp) html += '<div class="ansSec"><div class="ansHead resp">■ 대응방안</div><div class="ansBody">' + esc(resp) + "</div></div>";
   if (!html) {
     const full = answerFullOf(item);
-    html = full
-      ? '<div class="ansBody">' + esc(full) + "</div>"
-      : '<div class="placeholder">이 문항에는 모범답안 자료가 없습니다.</div>';
+    html = full ? '<div class="ansBody">' + esc(full) + "</div>"
+                : '<div class="placeholder">이 문항에는 모범답안 자료가 없습니다.</div>';
   }
   answerBox.innerHTML = html;
 }
 
+function setReveal(kind, show) {
+  const isCard = kind === "card";
+  const box = isCard ? cardBox : answerBox;
+  const btn = isCard ? cardBtn : answerBtn;
+  const txt = isCard ? cardBtnText : answerBtnText;
+  const name = isCard ? "요약 카드" : "모범답안";
+  if (show && current) (isCard ? renderCard : renderAnswer)(current);
+  box.classList.toggle("show", show);
+  btn.querySelector(".chev").classList.toggle("open", show);
+  txt.textContent = name + (show ? " 숨기기" : " 보기");
+  btn.setAttribute("aria-expanded", show ? "true" : "false");
+}
+
+function toggleReveal(kind) {
+  if (!current) return;
+  const box = kind === "card" ? cardBox : answerBox;
+  const show = !box.classList.contains("show");
+  setReveal(kind, show);
+  const name = kind === "card" ? "요약 카드" : "모범답안";
+  if (show && autoReadChk.checked) {
+    (kind === "card" ? speakCard : speakAnswer)(current);
+  } else if (!show && speakingLabel === name) {
+    stopSpeaking();
+  }
+}
+
 function closeReveals() {
-  cardBox.classList.remove("show");
+  setReveal("card", false);
+  setReveal("answer", false);
   cardBox.innerHTML = "";
-  cardBtn.textContent = "요약 카드 보기";
-  answerBox.classList.remove("show");
   answerBox.innerHTML = "";
-  answerBtn.textContent = "모범답안 보기";
 }
 
 /* --------------------------- 타이머 --------------------------- */
@@ -325,30 +344,70 @@ function currentStage() {
 
 function updateDisplay() {
   timeEl.textContent = formatTime(Math.max(0, remaining));
-  const pct = Math.max(0, (remaining / TOTAL_SECONDS) * 100);
-  barEl.style.width = pct + "%";
-
+  barEl.style.width = Math.max(0, (remaining / TOTAL_SECONDS) * 100) + "%";
   const stage = currentStage();
   timeEl.classList.remove("answer", "urgent");
   barEl.classList.remove("answer", "urgent");
-
   if (stage === "done") {
-    phaseEl.textContent = "종료";
-    phaseEl.className = "phase done";
+    phaseEl.textContent = "종료"; phaseEl.className = "phase done";
   } else if (stage === "urgent") {
-    timeEl.classList.add("urgent");
-    barEl.classList.add("urgent");
-    phaseEl.textContent = "답변 중 (종료 임박)";
-    phaseEl.className = "phase urgent";
+    timeEl.classList.add("urgent"); barEl.classList.add("urgent");
+    phaseEl.textContent = "답변 중 (종료 임박)"; phaseEl.className = "phase urgent";
   } else if (stage === "answer") {
-    timeEl.classList.add("answer");
-    barEl.classList.add("answer");
-    phaseEl.textContent = "답변 중";
-    phaseEl.className = "phase answer";
+    timeEl.classList.add("answer"); barEl.classList.add("answer");
+    phaseEl.textContent = "답변 중"; phaseEl.className = "phase answer";
   } else {
-    phaseEl.textContent = "구상 중";
-    phaseEl.className = "phase";
+    phaseEl.textContent = current ? "구상 중" : "대기 중"; phaseEl.className = "phase";
   }
+}
+
+// 시작 / 일시정지 / 계속을 버튼 하나로 처리한다
+function updateTimerBtn() {
+  if (!current || remaining <= 0) {
+    timerBtn.disabled = true;
+    timerBtn.textContent = remaining <= 0 ? "종료됨" : "시작";
+  } else if (timerId) {
+    timerBtn.disabled = false;
+    timerBtn.textContent = "일시정지";
+  } else {
+    timerBtn.disabled = false;
+    timerBtn.textContent = remaining === TOTAL_SECONDS ? "시작" : "계속";
+  }
+  resetBtn.disabled = !current;
+}
+
+function toggleTimer() {
+  if (!current) return;
+  if (timerId) {
+    clearInterval(timerId);
+    timerId = null;
+  } else if (remaining > 0) {
+    timerId = setInterval(tick, 1000);
+  }
+  updateTimerBtn();
+}
+
+function resetTimerState() {
+  clearInterval(timerId);
+  timerId = null;
+  remaining = TOTAL_SECONDS;
+  warned30 = false;
+  updateDisplay();
+  updateTimerBtn();
+}
+
+function tick() {
+  remaining -= 1;
+  if (remaining === COLOR_SWITCH_AT) beep(660, 180);
+  if (remaining === URGENT_AT && !warned30) { beep(880, 250); warned30 = true; }
+  if (remaining <= 0) {
+    clearInterval(timerId);
+    timerId = null;
+    beep(523, 200);
+    setTimeout(() => beep(523, 200), 300);
+    updateTimerBtn();
+  }
+  updateDisplay();
 }
 
 /* ----------------------- 키워드 자가진단 ----------------------- */
@@ -381,8 +440,8 @@ function checkKeywords() {
   renderKeywordHints(matchedSet);
   const pct = kws.length ? Math.round((matchedSet.size / kws.length) * 100) : 0;
   checkResultEl.textContent = kws.length
-    ? ("핵심 키워드 " + kws.length + "개 중 " + matchedSet.size + "개 포함 (" + pct + "%)")
-    : "이 문항에는 등록된 키워드가 없습니다.";
+    ? (kws.length + "개 중 " + matchedSet.size + "개 (" + pct + "%)")
+    : "등록된 키워드 없음";
 }
 
 /* --------------------------- 음성 인식 --------------------------- */
@@ -391,6 +450,11 @@ let recognition = null;
 let recognizing = false;
 let manuallyStopped = true;
 let restartTimer = null;
+
+function setSttUi(on, text) {
+  sttBtn.classList.toggle("recording", on);
+  sttBtn.innerHTML = '<span class="dot"></span>' + (text || (on ? "인식 중지" : "음성 인식"));
+}
 
 function attachRecognitionHandlers(r) {
   r.lang = "ko-KR";
@@ -409,7 +473,7 @@ function attachRecognitionHandlers(r) {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       manuallyStopped = true;
       recognizing = false;
-      sttBtn.textContent = "마이크 권한을 허용해주세요";
+      setSttUi(false, "마이크 권한 필요");
     }
     // other errors (no-speech, network, aborted) are recovered from in onend below
   };
@@ -418,12 +482,10 @@ function attachRecognitionHandlers(r) {
       // Chrome ends the recognition session after ~60s even in continuous mode;
       // if the user never asked to stop, transparently restart so it feels continuous.
       clearTimeout(restartTimer);
-      restartTimer = setTimeout(() => {
-        try { recognition.start(); } catch (e) {}
-      }, 250);
+      restartTimer = setTimeout(() => { try { recognition.start(); } catch (e) {} }, 250);
     } else {
       recognizing = false;
-      sttBtn.textContent = "음성으로 답변 인식 시작";
+      setSttUi(false);
       checkKeywords();
     }
   };
@@ -434,22 +496,21 @@ if (SR) {
   recognition = attachRecognitionHandlers(new SR());
 } else {
   sttBtn.disabled = true;
-  sttBtn.textContent = "음성 인식 미지원 브라우저";
+  setSttUi(false, "음성 인식 미지원");
 }
 
 function stopRecognition() {
   manuallyStopped = true;
   clearTimeout(restartTimer);
-  if (SR && recognizing) {
-    try { recognition.stop(); } catch (e) {}
-  }
+  if (SR && recognizing) { try { recognition.stop(); } catch (e) {} }
   recognizing = false;
-  sttBtn.textContent = "음성으로 답변 인식 시작";
+  setSttUi(false);
 }
 
 /* --------------------------- 문항 출제 --------------------------- */
 function drawQuestion() {
   const set = currentQuestionSet();
+  if (!set.length) return;
   let idx, drawnCount;
   if (orderRandom) {
     if (pool.length === 0) refillPool();
@@ -465,7 +526,7 @@ function drawQuestion() {
 
 function prevQuestion() {
   const set = currentQuestionSet();
-  if (orderRandom || current === null) return;
+  if (orderRandom || current === null || !set.length) return;
   // seqIndex는 '다음에 출제할 위치'이므로 2를 빼야 직전 문항이 된다
   seqIndex = (seqIndex - 2 + set.length) % set.length;
   const idx = seqIndex;
@@ -477,17 +538,18 @@ function showQuestion(set, idx, drawnCount) {
   stopSpeaking();
   stopRecognition();
   current = set[idx];
-  qnumEl.textContent = "문항 (" + drawnCount + " / " + set.length + ")";
+  hasDrawn = true;
+  drawBtn.textContent = "다음 문항 ▶";
+  qnumEl.textContent = drawnCount + " / " + set.length;
   qtextEl.textContent = current.q;
   srcBadgeEl.style.display = "inline-block";
-  srcBadgeEl.textContent = "출처: " + current.source;
+  srcBadgeEl.textContent = current.source;
 
   closeReveals();
   cardBtn.disabled = false;
-  cardReadBtn.disabled = !ttsSupported;
   answerBtn.disabled = false;
+  cardReadBtn.disabled = !ttsSupported;
   answerReadBtn.disabled = !ttsSupported;
-  stopBtn.disabled = true;
 
   answerInputEl.value = "";
   answerInputEl.disabled = false;
@@ -497,68 +559,32 @@ function showQuestion(set, idx, drawnCount) {
   checkResultEl.textContent = "";
   renderKeywordHints(null);
   resetTimerState();
-  startBtn.disabled = false;
-  resetBtn.disabled = false;
   updatePrevBtn();
 }
 
 function updatePrevBtn() {
   // 순서대로 모드에서, 문항을 한 번이라도 뽑은 뒤에만 활성화
   prevBtn.disabled = orderRandom || current === null;
+  prevBtn.title = orderRandom ? "무작위 모드에서는 사용할 수 없습니다" : "이전 문항";
 }
 
-function resetTimerState() {
-  clearInterval(timerId);
-  timerId = null;
-  running = false;
-  remaining = TOTAL_SECONDS;
-  warned30 = false;
-  updateDisplay();
-  startBtn.disabled = current === null;
-  startBtn.textContent = "시작";
-  pauseBtn.disabled = true;
-  pauseBtn.textContent = "일시정지";
-}
-
-function tick() {
-  remaining -= 1;
-  if (remaining === COLOR_SWITCH_AT) {
-    beep(660, 180);
-  }
-  if (remaining === URGENT_AT && !warned30) {
-    beep(880, 250);
-    warned30 = true;
-  }
-  if (remaining <= 0) {
-    clearInterval(timerId);
-    timerId = null;
-    running = false;
-    beep(523, 200);
-    setTimeout(() => beep(523, 200), 300);
-    startBtn.disabled = true;
-    pauseBtn.disabled = true;
-  }
-  updateDisplay();
-}
-
-/* --------------------------- 이벤트 --------------------------- */
-sourceFilterEl.addEventListener("change", () => {
+function resetToEmpty() {
   stopSpeaking();
   stopRecognition();
-  currentSource = sourceFilterEl.value;
   pool = [];
   seqIndex = 0;
   current = null;
+  hasDrawn = false;
+  drawBtn.textContent = "문항 뽑기";
   updateCountLabel();
   qnumEl.textContent = "문항을 뽑아주세요";
   qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
   srcBadgeEl.style.display = "none";
   closeReveals();
   cardBtn.disabled = true;
-  cardReadBtn.disabled = true;
   answerBtn.disabled = true;
+  cardReadBtn.disabled = true;
   answerReadBtn.disabled = true;
-  stopBtn.disabled = true;
   answerInputEl.value = "";
   answerInputEl.disabled = true;
   checkBtn.disabled = true;
@@ -568,94 +594,49 @@ sourceFilterEl.addEventListener("change", () => {
   keywordHintsEl.innerHTML = "";
   kwLabelEl.style.display = "none";
   resetTimerState();
-  startBtn.disabled = true;
-  resetBtn.disabled = true;
   updatePrevBtn();
+}
+
+/* --------------------------- 이벤트 --------------------------- */
+sourceFilterEl.addEventListener("change", () => {
+  currentSource = sourceFilterEl.value;
+  resetToEmpty();
 });
 
 drawBtn.addEventListener("click", drawQuestion);
+prevBtn.addEventListener("click", prevQuestion);
 
-orderBtn.addEventListener("click", () => {
-  orderRandom = !orderRandom;
-  orderBtn.textContent = orderRandom ? "출제: 무작위" : "출제: 순서대로";
-  pool = []; // 무작위 모드로 전환 시 새로 섞음 (순서 모드는 seqIndex로 이어서 진행)
+orderSeg.addEventListener("click", (e) => {
+  const btn = e.target.closest(".segBtn");
+  if (!btn) return;
+  const wantRandom = btn.dataset.order === "rand";
+  if (wantRandom === orderRandom) return;
+  orderRandom = wantRandom;
+  orderSeg.querySelectorAll(".segBtn").forEach(b => b.classList.toggle("active", b === btn));
+  pool = []; // 무작위로 전환 시 새로 섞음 (순서 모드는 seqIndex로 이어서 진행)
   updateCountLabel();
   updatePrevBtn();
 });
 
-prevBtn.addEventListener("click", prevQuestion);
-
-document.querySelectorAll(".speedBtn").forEach(btn => {
-  btn.addEventListener("click", () => applyRate(parseFloat(btn.dataset.rate)));
-});
-applyRate(ttsRate); // 기본값(0.8배) 활성 표시
-
-startBtn.addEventListener("click", () => {
-  if (!timerId && remaining > 0) {
-    timerId = setInterval(tick, 1000);
-    running = true;
-    startBtn.disabled = true;
-    pauseBtn.disabled = false;
-  }
+$("speedSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segBtn");
+  if (btn) applyRate(parseFloat(btn.dataset.rate));
 });
 
-pauseBtn.addEventListener("click", () => {
-  if (timerId) {
-    clearInterval(timerId);
-    timerId = null;
-    running = false;
-    startBtn.disabled = false;
-    startBtn.textContent = "계속";
-    pauseBtn.disabled = true;
-  }
-});
+timerBtn.addEventListener("click", toggleTimer);
+resetBtn.addEventListener("click", resetTimerState);
 
-resetBtn.addEventListener("click", () => {
-  resetTimerState();
-});
+cardBtn.addEventListener("click", () => toggleReveal("card"));
+answerBtn.addEventListener("click", () => toggleReveal("answer"));
+cardReadBtn.addEventListener("click", () => toggleRead("card"));
+answerReadBtn.addEventListener("click", () => toggleRead("answer"));
 
-// ① 요약 카드 토글
-cardBtn.addEventListener("click", () => {
-  if (current === null) return;
-  const showing = !cardBox.classList.contains("show");
-  if (showing) renderCard(current);
-  cardBox.classList.toggle("show", showing);
-  cardBtn.textContent = showing ? "요약 카드 숨기기" : "요약 카드 보기";
-  if (showing && autoReadChk.checked) speakCard(current);
-  if (!showing && speakingLabel === "요약 카드") stopSpeaking();
-});
-
-cardReadBtn.addEventListener("click", () => {
-  if (current !== null) speakCard(current);
-});
-
-// ② 모범답안 토글
-answerBtn.addEventListener("click", () => {
-  if (current === null) return;
-  const showing = !answerBox.classList.contains("show");
-  if (showing) renderAnswer(current);
-  answerBox.classList.toggle("show", showing);
-  answerBtn.textContent = showing ? "모범답안 숨기기" : "모범답안 보기";
-  if (showing && autoReadChk.checked) speakAnswer(current);
-  if (!showing && speakingLabel === "모범답안") stopSpeaking();
-});
-
-answerReadBtn.addEventListener("click", () => {
-  if (current !== null) speakAnswer(current);
-});
-
-stopBtn.addEventListener("click", () => {
-  stopSpeaking();
-});
-
-checkBtn.addEventListener("click", () => {
-  checkKeywords();
-});
-
+checkBtn.addEventListener("click", checkKeywords);
 clearBtn.addEventListener("click", () => {
   answerInputEl.value = "";
   checkResultEl.textContent = "";
   renderKeywordHints(null);
+  answerInputEl.focus();
 });
 
 sttBtn.addEventListener("click", () => {
@@ -665,15 +646,37 @@ sttBtn.addEventListener("click", () => {
     try {
       recognition.start();
       recognizing = true;
-      sttBtn.textContent = "인식 중지 (듣는 중...)";
+      setSttUi(true);
     } catch (e) {}
   } else {
     stopRecognition();
   }
 });
 
+/* --------------------------- 단축키 --------------------------- */
+// e.code를 쓰면 한글 입력 상태에서도 동일하게 동작한다
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT")) {
+    if (e.code === "Escape") t.blur();
+    return;
+  }
+  switch (e.code) {
+    case "Space":      e.preventDefault(); toggleTimer(); break;
+    case "KeyN":
+    case "ArrowRight": e.preventDefault(); if (!drawBtn.disabled) drawQuestion(); break;
+    case "KeyP":
+    case "ArrowLeft":  e.preventDefault(); if (!prevBtn.disabled) prevQuestion(); break;
+    case "Digit1":     e.preventDefault(); toggleReveal("card"); break;
+    case "Digit2":     e.preventDefault(); toggleReveal("answer"); break;
+    case "KeyR":       e.preventDefault(); if (current) resetTimerState(); break;
+    case "Escape":     stopSpeaking(); stopRecognition(); break;
+  }
+});
+
+/* -------------------- 모바일 오디오 잠금 해제 -------------------- */
 // 모바일(삼성 인터넷/크롬)은 첫 사용자 조작 전에는 소리 재생이 차단된다.
-// 아무 버튼이나 처음 누를 때 오디오와 TTS 엔진을 한 번 깨워둔다.
 let audioUnlocked = false;
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -688,8 +691,14 @@ function unlockAudio() {
     loadVoices();
   }
 }
-document.addEventListener("click", unlockAudio, { once: false });
-document.addEventListener("touchstart", unlockAudio, { once: false });
+document.addEventListener("click", unlockAudio);
+document.addEventListener("touchstart", unlockAudio);
+
+/* ---------------------------- 시작 ---------------------------- */
+applyRate(ttsRate);
+updateReadButtons();
+updateDisplay();
+updateTimerBtn();
 
 fetch("./questions.json")
   .then((res) => {
