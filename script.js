@@ -30,11 +30,15 @@ const orderBtn = document.getElementById("orderBtn");
 const startBtn = document.getElementById("startBtn");
 const pauseBtn = document.getElementById("pauseBtn");
 const resetBtn = document.getElementById("resetBtn");
+const cardBtn = document.getElementById("cardBtn");
+const cardReadBtn = document.getElementById("cardReadBtn");
+const cardBox = document.getElementById("cardBox");
 const answerBtn = document.getElementById("answerBtn");
+const answerReadBtn = document.getElementById("answerReadBtn");
 const answerBox = document.getElementById("answerBox");
-const replayBtn = document.getElementById("replayBtn");
 const stopBtn = document.getElementById("stopBtn");
 const autoReadChk = document.getElementById("autoReadChk");
+const nowReadingEl = document.getElementById("nowReading");
 const kwLabelEl = document.getElementById("kwLabel");
 const keywordHintsEl = document.getElementById("keywordHints");
 const answerInputEl = document.getElementById("answerInput");
@@ -42,6 +46,29 @@ const checkBtn = document.getElementById("checkBtn");
 const sttBtn = document.getElementById("sttBtn");
 const clearBtn = document.getElementById("clearBtn");
 const checkResultEl = document.getElementById("checkResult");
+
+/* ------------------------------------------------------------------
+   데이터 접근 헬퍼
+   요약 카드(cardCore/cardResp)와 모범답안(answerCore/answerResp)은
+   서로 다른 원본에서 온 별개의 자료다. 예전 파일 형식(core/resp/a)도
+   읽을 수 있도록 아래에서 흡수한다.
+------------------------------------------------------------------ */
+function asList(v) {
+  if (Array.isArray(v)) return v.filter(Boolean);
+  if (typeof v === "string" && v.trim()) {
+    return v.split("\n").map(s => s.replace(/^[·•\-\s]+/, "").trim()).filter(Boolean);
+  }
+  return [];
+}
+const cardCoreOf = (it) => asList(it && it.cardCore);
+const cardRespOf = (it) => asList(it && it.cardResp);
+const answerCoreOf = (it) => (it && (it.answerCore || it.core)) || "";
+const answerRespOf = (it) => (it && (it.answerResp || it.resp)) || "";
+function answerFullOf(it) {
+  const parts = [answerCoreOf(it), answerRespOf(it)].filter(Boolean);
+  return parts.length ? parts.join("\n\n") : ((it && it.a) || "");
+}
+const hasCard = (it) => cardCoreOf(it).length > 0 || cardRespOf(it).length > 0;
 
 function buildFilterOptions() {
   sourceFilterEl.innerHTML = "";
@@ -75,7 +102,8 @@ function refillPool() {
 
 function updateCountLabel() {
   const set = currentQuestionSet();
-  countLabel.textContent = "선택된 범위: " + currentSource + " · 총 " + set.length + "문항 중 무작위 출제";
+  const how = orderRandom ? "무작위 출제" : "순서대로 출제";
+  countLabel.textContent = "선택된 범위: " + currentSource + " · 총 " + set.length + "문항 " + how;
 }
 
 let audioCtx = null;
@@ -107,12 +135,11 @@ function beep(freq, dur) {
   } catch (e) {}
 }
 
+/* ------------------------------ TTS ------------------------------ */
 const ttsSupported = "speechSynthesis" in window;
 
-// 모바일 브라우저는 목록이 비동기로 채워지므로 미리 받아둔다
 let koVoice = null;
-let ttsRate = 0.8;             // 읽기 속도 (0.8 / 1 / 1.5 / 2)
-let lastChunks = [];           // 현재 읽고 있는 전체 문장 목록 (배속 변경 시 이어읽기용)
+let ttsRate = 0.8;
 function loadVoices() {
   if (!ttsSupported) return;
   const vs = window.speechSynthesis.getVoices() || [];
@@ -135,7 +162,6 @@ function makeUtter(text) {
 
 // 안드로이드에서 긴 문장이 중간에 끊기는 것을 막기 위해 문장 단위로 쪼갠다
 function splitForSpeech(text) {
-  // lookbehind 미지원 브라우저(구형 안드로이드 웹뷰)도 동작하도록 단순 치환 방식 사용
   const marked = String(text || "")
     .replace(/([.!?。])\s+/g, "$1\u0001")
     .replace(/\n+/g, "\u0001");
@@ -144,23 +170,32 @@ function splitForSpeech(text) {
 }
 
 let speakQueue = [];
-let speakingNow = null;        // 지금 읽고 있는 문장
+let speakingNow = null;
+let speakingLabel = "";
 
-function speakSequence(chunks) {
+function speakSequence(chunks, label) {
   if (!ttsSupported || !chunks.length) return;
   window.speechSynthesis.cancel();
-  lastChunks = chunks.slice();
   speakQueue = chunks.slice();
+  speakingLabel = label || "";
   stopBtn.disabled = false;
+  nowReadingEl.textContent = speakingLabel ? "읽는 중: " + speakingLabel : "";
   const next = () => {
-    if (!speakQueue.length) { speakingNow = null; stopBtn.disabled = true; return; }
+    if (!speakQueue.length) { finishSpeaking(); return; }
     speakingNow = speakQueue.shift();
     const u = makeUtter(speakingNow);
     u.onend = next;
-    u.onerror = () => { speakingNow = null; stopBtn.disabled = true; speakQueue = []; };
+    u.onerror = () => finishSpeaking();
     window.speechSynthesis.speak(u);
   };
   next();
+}
+
+function finishSpeaking() {
+  speakQueue = [];
+  speakingNow = null;
+  stopBtn.disabled = true;
+  nowReadingEl.textContent = "";
 }
 
 // 배속을 바꾸면 읽던 문장부터 새 속도로 이어서 다시 읽는다
@@ -171,67 +206,110 @@ function applyRate(rate) {
   });
   const isSpeaking = ttsSupported && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
   if (isSpeaking && speakingNow) {
-    const rest = [speakingNow].concat(speakQueue);
-    speakSequence(rest);
+    speakSequence([speakingNow].concat(speakQueue), speakingLabel);
   }
 }
-
-function speakText(text) {
-  if (!ttsSupported || !text) return;
-  speakSequence(splitForSpeech(text));
-}
-
-function speakQA(item) {
-  if (!ttsSupported || !item) return;
-  const parts = splitForSpeech(item.q);
-  if (item.core) {
-    parts.push.apply(parts, splitForSpeech(item.core));
-    if (item.resp) parts.push.apply(parts, splitForSpeech(item.resp));
-  } else {
-    parts.push.apply(parts, splitForSpeech(item.a || ""));
-  }
-  speakSequence(parts);
-}
-
-function renderAnswerCard(item) {
-  if (!item) { answerBox.innerHTML = ""; return; }
-  const esc = (s) => String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  let html = "";
-  if (item.core) {
-    html += '<div class="answer-sec">'
-      + '<div class="answer-sec-title core">■ 핵심정리</div>'
-      + '<div class="answer-sec-body">' + esc(item.core) + '</div>'
-      + '</div>';
-  }
-  if (item.resp) {
-    html += '<div class="answer-sec">'
-      + '<div class="answer-sec-title resp">■ 대응방안</div>'
-      + '<div class="answer-sec-body">' + esc(item.resp) + '</div>'
-      + '</div>';
-  }
-  if (!html) {
-    html = '<div class="answer-sec-body">' + esc(item.a || "") + '</div>';
-  }
-  answerBox.innerHTML = html;
-}
-
 
 function stopSpeaking() {
   speakQueue = [];
   speakingNow = null;
   if (ttsSupported) window.speechSynthesis.cancel();
   stopBtn.disabled = true;
+  nowReadingEl.textContent = "";
+}
+
+// ① 요약 카드 읽기: 문제 → 핵심정리 항목 → 대응방안 항목
+function speakCard(item) {
+  if (!ttsSupported || !item) return;
+  const parts = splitForSpeech(item.q);
+  const core = cardCoreOf(item);
+  const resp = cardRespOf(item);
+  if (core.length) {
+    parts.push("핵심정리.");
+    core.forEach(b => parts.push.apply(parts, splitForSpeech(b)));
+  }
+  if (resp.length) {
+    parts.push("대응방안.");
+    resp.forEach(b => parts.push.apply(parts, splitForSpeech(b)));
+  }
+  speakSequence(parts, "요약 카드");
+}
+
+// ② 모범답안 읽기: 문제 → 구술형 전문
+function speakAnswer(item) {
+  if (!ttsSupported || !item) return;
+  const parts = splitForSpeech(item.q);
+  parts.push.apply(parts, splitForSpeech(answerFullOf(item)));
+  speakSequence(parts, "모범답안");
 }
 
 if (!ttsSupported) {
   autoReadChk.checked = false;
   autoReadChk.disabled = true;
   document.querySelector(".ttsRow label").textContent = "이 브라우저는 음성 읽기(TTS)를 지원하지 않습니다.";
+  cardReadBtn.title = answerReadBtn.title = "이 브라우저는 음성 읽기를 지원하지 않습니다.";
 }
 
+/* --------------------------- 렌더링 --------------------------- */
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;");
+
+function bulletColumn(title, cls, items) {
+  return '<div class="sumCol ' + cls + '">'
+    + '<div class="sumHead ' + cls + '">' + title + '</div>'
+    + '<ul class="sumList">' + items.map(b => "<li>" + esc(b) + "</li>").join("") + "</ul>"
+    + "</div>";
+}
+
+// ① 요약 카드 — 짧은 항목 2단
+function renderCard(item) {
+  const core = cardCoreOf(item);
+  const resp = cardRespOf(item);
+  if (!core.length && !resp.length) {
+    cardBox.innerHTML = '<div class="placeholder">이 문항에는 요약 카드 자료가 없습니다. 모범답안을 확인해주세요.</div>';
+    return;
+  }
+  let html = '<div class="sumGrid">';
+  if (core.length) html += bulletColumn("핵심정리", "core", core);
+  if (resp.length) html += bulletColumn("대응방안", "resp", resp);
+  html += "</div>";
+  cardBox.innerHTML = html;
+}
+
+// ② 모범답안 — 구술형 문장
+function renderAnswer(item) {
+  const core = answerCoreOf(item);
+  const resp = answerRespOf(item);
+  let html = "";
+  if (core) {
+    html += '<div class="ansSec"><div class="ansHead core">■ 핵심정리</div>'
+      + '<div class="ansBody">' + esc(core) + "</div></div>";
+  }
+  if (resp) {
+    html += '<div class="ansSec"><div class="ansHead resp">■ 대응방안</div>'
+      + '<div class="ansBody">' + esc(resp) + "</div></div>";
+  }
+  if (!html) {
+    const full = answerFullOf(item);
+    html = full
+      ? '<div class="ansBody">' + esc(full) + "</div>"
+      : '<div class="placeholder">이 문항에는 모범답안 자료가 없습니다.</div>';
+  }
+  answerBox.innerHTML = html;
+}
+
+function closeReveals() {
+  cardBox.classList.remove("show");
+  cardBox.innerHTML = "";
+  cardBtn.textContent = "요약 카드 보기";
+  answerBox.classList.remove("show");
+  answerBox.innerHTML = "";
+  answerBtn.textContent = "모범답안 보기";
+}
+
+/* --------------------------- 타이머 --------------------------- */
 function formatTime(sec) {
   const m = Math.floor(sec / 60).toString().padStart(2, "0");
   const s = (sec % 60).toString().padStart(2, "0");
@@ -273,8 +351,9 @@ function updateDisplay() {
   }
 }
 
+/* ----------------------- 키워드 자가진단 ----------------------- */
 function normalizeForMatch(s) {
-  return (s || "").replace(/s+/g, "").toLowerCase();
+  return (s || "").replace(/\s+/g, "").toLowerCase();
 }
 
 function renderKeywordHints(matchedSet) {
@@ -306,6 +385,7 @@ function checkKeywords() {
     : "이 문항에는 등록된 키워드가 없습니다.";
 }
 
+/* --------------------------- 음성 인식 --------------------------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 let recognizing = false;
@@ -367,6 +447,7 @@ function stopRecognition() {
   sttBtn.textContent = "음성으로 답변 인식 시작";
 }
 
+/* --------------------------- 문항 출제 --------------------------- */
 function drawQuestion() {
   const set = currentQuestionSet();
   let idx, drawnCount;
@@ -400,12 +481,14 @@ function showQuestion(set, idx, drawnCount) {
   qtextEl.textContent = current.q;
   srcBadgeEl.style.display = "inline-block";
   srcBadgeEl.textContent = "출처: " + current.source;
-  answerBox.classList.remove("show");
-  answerBox.innerHTML = "";
-  answerBtn.textContent = "핵심정리·대응방안 카드 보기";
+
+  closeReveals();
+  cardBtn.disabled = false;
+  cardReadBtn.disabled = !ttsSupported;
   answerBtn.disabled = false;
-  replayBtn.disabled = true;
+  answerReadBtn.disabled = !ttsSupported;
   stopBtn.disabled = true;
+
   answerInputEl.value = "";
   answerInputEl.disabled = false;
   checkBtn.disabled = false;
@@ -458,29 +541,30 @@ function tick() {
   updateDisplay();
 }
 
+/* --------------------------- 이벤트 --------------------------- */
 sourceFilterEl.addEventListener("change", () => {
   stopSpeaking();
   stopRecognition();
   currentSource = sourceFilterEl.value;
-  updateCountLabel();
   pool = [];
   seqIndex = 0;
   current = null;
+  updateCountLabel();
   qnumEl.textContent = "문항을 뽑아주세요";
   qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
   srcBadgeEl.style.display = "none";
+  closeReveals();
+  cardBtn.disabled = true;
+  cardReadBtn.disabled = true;
   answerBtn.disabled = true;
-  replayBtn.disabled = true;
+  answerReadBtn.disabled = true;
   stopBtn.disabled = true;
-  answerBox.classList.remove("show");
-  answerBox.innerHTML = "";
   answerInputEl.value = "";
   answerInputEl.disabled = true;
   checkBtn.disabled = true;
   clearBtn.disabled = true;
   sttBtn.disabled = true;
   checkResultEl.textContent = "";
-  renderKeywordHints(null);
   keywordHintsEl.innerHTML = "";
   kwLabelEl.style.display = "none";
   resetTimerState();
@@ -495,6 +579,7 @@ orderBtn.addEventListener("click", () => {
   orderRandom = !orderRandom;
   orderBtn.textContent = orderRandom ? "출제: 무작위" : "출제: 순서대로";
   pool = []; // 무작위 모드로 전환 시 새로 섞음 (순서 모드는 seqIndex로 이어서 진행)
+  updateCountLabel();
   updatePrevBtn();
 });
 
@@ -529,20 +614,34 @@ resetBtn.addEventListener("click", () => {
   resetTimerState();
 });
 
-answerBtn.addEventListener("click", () => {
-  const showing = answerBox.classList.toggle("show");
-  answerBtn.textContent = showing ? "핵심정리·대응방안 카드 숨기기" : "핵심정리·대응방안 카드 보기";
-  if (showing && current !== null) {
-    renderAnswerCard(current);
-    replayBtn.disabled = false;
-    if (autoReadChk.checked) speakQA(current);
-  } else {
-    stopSpeaking();
-  }
+// ① 요약 카드 토글
+cardBtn.addEventListener("click", () => {
+  if (current === null) return;
+  const showing = !cardBox.classList.contains("show");
+  if (showing) renderCard(current);
+  cardBox.classList.toggle("show", showing);
+  cardBtn.textContent = showing ? "요약 카드 숨기기" : "요약 카드 보기";
+  if (showing && autoReadChk.checked) speakCard(current);
+  if (!showing && speakingLabel === "요약 카드") stopSpeaking();
 });
 
-replayBtn.addEventListener("click", () => {
-  if (current !== null) speakQA(current);
+cardReadBtn.addEventListener("click", () => {
+  if (current !== null) speakCard(current);
+});
+
+// ② 모범답안 토글
+answerBtn.addEventListener("click", () => {
+  if (current === null) return;
+  const showing = !answerBox.classList.contains("show");
+  if (showing) renderAnswer(current);
+  answerBox.classList.toggle("show", showing);
+  answerBtn.textContent = showing ? "모범답안 숨기기" : "모범답안 보기";
+  if (showing && autoReadChk.checked) speakAnswer(current);
+  if (!showing && speakingLabel === "모범답안") stopSpeaking();
+});
+
+answerReadBtn.addEventListener("click", () => {
+  if (current !== null) speakAnswer(current);
 });
 
 stopBtn.addEventListener("click", () => {
