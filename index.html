@@ -10,7 +10,7 @@
 
 <div class="wrap">
   <h1>진로전담교사 모의 심층면접 타이머</h1>
-  <p class="sub">3분 타이머 · 키워드 자가진단 · 모범답안 자동 읽기(TTS) · 핵심정리·대응방안 카드</p>
+  <p class="sub">3분 타이머 · 키워드 자가진단 · 모범답안 자동 읽기(TTS)</p>
 
   <div class="card">
     <div class="filterRow">
@@ -29,25 +29,8 @@
     <div class="kwHints" id="keywordHints"></div>
   </div>
 
-  <div class="card summary-card">
-    <div class="row">
-      <button id="summaryBtn" disabled>핵심정리·대응방안 카드 보기</button>
-    </div>
-    <div class="summary-box" id="summaryBox">
-      <div class="summary-col summary-core">
-        <div class="summary-title">핵심정리</div>
-        <ul id="summaryCoreList"></ul>
-      </div>
-      <div class="summary-col summary-resp">
-        <div class="summary-title">대응방안</div>
-        <ul id="summaryRespList"></ul>
-      </div>
-    </div>
-    <div class="hint summary-hint">면접 답변 구조화용 카드형 요약입니다. 시간 내 구상 시 두괄식 프레임(핵심정리 → 대응방안)으로 활용하세요.</div>
-  </div>
-
   <div class="card answer-toggle">
-    <button id="answerBtn" disabled>모범답안 보기</button>
+    <button id="answerBtn" disabled>핵심정리·대응방안 카드 보기</button>
     <button id="replayBtn" disabled>다시 듣기</button>
     <button id="stopBtn" disabled>읽기 중지</button>
     <div class="model-answer" id="answerBox"></div>
@@ -61,7 +44,7 @@
     </div>
     <div class="ttsRow">
       <input type="checkbox" id="autoReadChk" checked>
-      <label for="autoReadChk">모범답안 보기 시 문제 → 모범답안 순으로 자동 읽어주기 (TTS)</label>
+      <label for="autoReadChk">카드 보기 시 문제 → 핵심정리 → 대응방안 순으로 자동 읽어주기 (TTS)</label>
     </div>
   </div>
 
@@ -97,7 +80,6 @@
         <li>지원 학교 특성을 반영해야 하는 질문은 반드시 해당 학교의 교육과정 편성표, 학교 홈페이지 공지사항을 사전에 확인하여 개인화하십시오.</li>
         <li>전문성 문항은 최신 정책 용어(고교학점제, 2022 개정 교육과정, 진로연계교육)를 정확히 사용하는 것이 인상을 좌우합니다.</li>
         <li>태도 문항은 추상적 다짐보다 구체적 행동(예: '경청하겠습니다' 대신 '첫 상담에서 학생의 관심사를 먼저 듣겠습니다')으로 답변하십시오.</li>
-        <li>핵심정리·대응방안 카드는 구상 시간 이후에 열어 자신의 답변과 프레임을 비교하는 용도로 활용하는 것이 효과적입니다.</li>
       </ul>
     </details>
   </div>

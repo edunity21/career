@@ -183,15 +183,41 @@ function speakText(text) {
 
 function speakQA(item) {
   if (!ttsSupported || !item) return;
-  let parts = splitForSpeech(item.q);
-  if (item.core || item.resp) {
-    if (item.core) parts = parts.concat(splitForSpeech(item.core));
-    if (item.resp) parts = parts.concat(splitForSpeech(item.resp));
+  const parts = splitForSpeech(item.q);
+  if (item.core) {
+    parts.push.apply(parts, splitForSpeech(item.core));
+    if (item.resp) parts.push.apply(parts, splitForSpeech(item.resp));
   } else {
-    parts = parts.concat(splitForSpeech(item.a));
+    parts.push.apply(parts, splitForSpeech(item.a || ""));
   }
   speakSequence(parts);
 }
+
+function renderAnswerCard(item) {
+  if (!item) { answerBox.innerHTML = ""; return; }
+  const esc = (s) => String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  let html = "";
+  if (item.core) {
+    html += '<div class="answer-sec">'
+      + '<div class="answer-sec-title core">■ 핵심정리</div>'
+      + '<div class="answer-sec-body">' + esc(item.core) + '</div>'
+      + '</div>';
+  }
+  if (item.resp) {
+    html += '<div class="answer-sec">'
+      + '<div class="answer-sec-title resp">■ 대응방안</div>'
+      + '<div class="answer-sec-body">' + esc(item.resp) + '</div>'
+      + '</div>';
+  }
+  if (!html) {
+    html = '<div class="answer-sec-body">' + esc(item.a || "") + '</div>';
+  }
+  answerBox.innerHTML = html;
+}
+
 
 function stopSpeaking() {
   speakQueue = [];
@@ -376,7 +402,7 @@ function showQuestion(set, idx, drawnCount) {
   srcBadgeEl.textContent = "출처: " + current.source;
   answerBox.classList.remove("show");
   answerBox.innerHTML = "";
-  answerBtn.textContent = "모범답안 보기";
+  answerBtn.textContent = "핵심정리·대응방안 카드 보기";
   answerBtn.disabled = false;
   replayBtn.disabled = true;
   stopBtn.disabled = true;
@@ -503,41 +529,11 @@ resetBtn.addEventListener("click", () => {
   resetTimerState();
 });
 
-function renderAnswer(item) {
-  answerBox.innerHTML = "";
-  if (!item) return;
-  const hasStruct = item.core || item.resp;
-  if (hasStruct) {
-    if (item.core) {
-      const h1 = document.createElement("div");
-      h1.className = "answer-sec-title";
-      h1.textContent = "■ 핵심정리";
-      const p1 = document.createElement("div");
-      p1.className = "answer-sec-body";
-      p1.textContent = item.core;
-      answerBox.appendChild(h1);
-      answerBox.appendChild(p1);
-    }
-    if (item.resp) {
-      const h2 = document.createElement("div");
-      h2.className = "answer-sec-title";
-      h2.textContent = "■ 대응방안";
-      const p2 = document.createElement("div");
-      p2.className = "answer-sec-body";
-      p2.textContent = item.resp;
-      answerBox.appendChild(h2);
-      answerBox.appendChild(p2);
-    }
-  } else {
-    answerBox.textContent = item.a || "";
-  }
-}
-
 answerBtn.addEventListener("click", () => {
   const showing = answerBox.classList.toggle("show");
-  answerBtn.textContent = showing ? "모범답안 숨기기" : "모범답안 보기";
+  answerBtn.textContent = showing ? "핵심정리·대응방안 카드 숨기기" : "핵심정리·대응방안 카드 보기";
   if (showing && current !== null) {
-    renderAnswer(current);
+    renderAnswerCard(current);
     replayBtn.disabled = false;
     if (autoReadChk.checked) speakQA(current);
   } else {

@@ -197,20 +197,23 @@
     font-weight: bold;
   }
 
-/* 문장연결형 모범답안 소제목 */
-.model-answer .answer-sec-title {
-  font-weight: 700;
-  color: #1e40af;
-  margin: 10px 0 6px;
-  font-size: 14.5px;
-  letter-spacing: -0.2px;
-}
-.model-answer .answer-sec-title:first-child {
-  margin-top: 0;
-}
-.model-answer .answer-sec-body {
-  white-space: pre-wrap;
-  line-height: 1.75;
-  color: #111827;
-  margin-bottom: 4px;
-}
+  /* --- 핵심정리 · 대응방안 카드 섹션 --- */
+  .answer-sec { margin-bottom: 14px; }
+  .answer-sec:last-child { margin-bottom: 0; }
+  .answer-sec-title {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+  .answer-sec-title.core { background: #EEEDFE; color: var(--purple-dark); }
+  .answer-sec-title.resp { background: var(--answer-bg); color: #854F0B; }
+  .answer-sec-body {
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text);
+    white-space: pre-line;
+  }
