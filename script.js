@@ -111,6 +111,8 @@ const ttsSupported = "speechSynthesis" in window;
 
 // 모바일 브라우저는 목록이 비동기로 채워지므로 미리 받아둔다
 let koVoice = null;
+let ttsRate = 0.8;             // 읽기 속도 (0.8 / 1 / 1.5 / 2)
+let lastChunks = [];           // 현재 읽고 있는 전체 문장 목록 (배속 변경 시 이어읽기용)
 function loadVoices() {
   if (!ttsSupported) return;
   const vs = window.speechSynthesis.getVoices() || [];
@@ -125,7 +127,7 @@ function makeUtter(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "ko-KR";
   if (koVoice) u.voice = koVoice;
-  u.rate = 0.8;
+  u.rate = ttsRate;
   u.pitch = 1;
   u.volume = 1;
   return u;
@@ -142,19 +144,36 @@ function splitForSpeech(text) {
 }
 
 let speakQueue = [];
+let speakingNow = null;        // 지금 읽고 있는 문장
+
 function speakSequence(chunks) {
   if (!ttsSupported || !chunks.length) return;
   window.speechSynthesis.cancel();
+  lastChunks = chunks.slice();
   speakQueue = chunks.slice();
   stopBtn.disabled = false;
   const next = () => {
-    if (!speakQueue.length) { stopBtn.disabled = true; return; }
-    const u = makeUtter(speakQueue.shift());
+    if (!speakQueue.length) { speakingNow = null; stopBtn.disabled = true; return; }
+    speakingNow = speakQueue.shift();
+    const u = makeUtter(speakingNow);
     u.onend = next;
-    u.onerror = () => { stopBtn.disabled = true; speakQueue = []; };
+    u.onerror = () => { speakingNow = null; stopBtn.disabled = true; speakQueue = []; };
     window.speechSynthesis.speak(u);
   };
   next();
+}
+
+// 배속을 바꾸면 읽던 문장부터 새 속도로 이어서 다시 읽는다
+function applyRate(rate) {
+  ttsRate = rate;
+  document.querySelectorAll(".speedBtn").forEach(b => {
+    b.classList.toggle("active", parseFloat(b.dataset.rate) === rate);
+  });
+  const isSpeaking = ttsSupported && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
+  if (isSpeaking && speakingNow) {
+    const rest = [speakingNow].concat(speakQueue);
+    speakSequence(rest);
+  }
 }
 
 function speakText(text) {
@@ -169,6 +188,7 @@ function speakQA(item) {
 
 function stopSpeaking() {
   speakQueue = [];
+  speakingNow = null;
   if (ttsSupported) window.speechSynthesis.cancel();
   stopBtn.disabled = true;
 }
@@ -446,6 +466,11 @@ orderBtn.addEventListener("click", () => {
 });
 
 prevBtn.addEventListener("click", prevQuestion);
+
+document.querySelectorAll(".speedBtn").forEach(btn => {
+  btn.addEventListener("click", () => applyRate(parseFloat(btn.dataset.rate)));
+});
+applyRate(ttsRate); // 기본값(0.8배) 활성 표시
 
 startBtn.addEventListener("click", () => {
   if (!timerId && remaining > 0) {

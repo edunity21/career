@@ -171,3 +171,28 @@
     margin-top: 10px;
     min-height: 18px;
   }
+
+  .speedRow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+  .speedLabel { font-size: 13px; color: var(--muted); margin-right: 4px; }
+  .speedBtn {
+    font-size: 13px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .speedBtn.active {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: #fff;
+    font-weight: bold;
+  }
