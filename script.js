@@ -42,10 +42,6 @@ const checkBtn = document.getElementById("checkBtn");
 const sttBtn = document.getElementById("sttBtn");
 const clearBtn = document.getElementById("clearBtn");
 const checkResultEl = document.getElementById("checkResult");
-const summaryBtn = document.getElementById("summaryBtn");
-const summaryBox = document.getElementById("summaryBox");
-const summaryCoreList = document.getElementById("summaryCoreList");
-const summaryRespList = document.getElementById("summaryRespList");
 
 function buildFilterOptions() {
   sourceFilterEl.innerHTML = "";
@@ -187,7 +183,14 @@ function speakText(text) {
 
 function speakQA(item) {
   if (!ttsSupported || !item) return;
-  speakSequence(splitForSpeech(item.q).concat(splitForSpeech(item.a)));
+  let parts = splitForSpeech(item.q);
+  if (item.core || item.resp) {
+    if (item.core) parts = parts.concat(splitForSpeech(item.core));
+    if (item.resp) parts = parts.concat(splitForSpeech(item.resp));
+  } else {
+    parts = parts.concat(splitForSpeech(item.a));
+  }
+  speakSequence(parts);
 }
 
 function stopSpeaking() {
@@ -260,33 +263,6 @@ function renderKeywordHints(matchedSet) {
     keywordHintsEl.appendChild(span);
   });
   kwLabelEl.style.display = kws.length ? "block" : "none";
-}
-
-function renderSummaryLists() {
-  summaryCoreList.innerHTML = "";
-  summaryRespList.innerHTML = "";
-  const core = (current && Array.isArray(current.core)) ? current.core : [];
-  const resp = (current && Array.isArray(current.resp)) ? current.resp : [];
-  core.forEach(function (t) {
-    const li = document.createElement("li");
-    li.textContent = t;
-    summaryCoreList.appendChild(li);
-  });
-  resp.forEach(function (t) {
-    const li = document.createElement("li");
-    li.textContent = t;
-    summaryRespList.appendChild(li);
-  });
-  if (core.length === 0 && resp.length === 0) {
-    const li = document.createElement("li");
-    li.textContent = "이 문항에는 등록된 핵심정리·대응방안 카드가 없습니다.";
-    summaryCoreList.appendChild(li);
-  }
-}
-
-function hideSummary() {
-  summaryBox.classList.remove("show");
-  summaryBtn.textContent = "핵심정리·대응방안 카드 보기";
 }
 
 function checkKeywords() {
@@ -399,12 +375,9 @@ function showQuestion(set, idx, drawnCount) {
   srcBadgeEl.style.display = "inline-block";
   srcBadgeEl.textContent = "출처: " + current.source;
   answerBox.classList.remove("show");
-  answerBox.textContent = "";
+  answerBox.innerHTML = "";
   answerBtn.textContent = "모범답안 보기";
   answerBtn.disabled = false;
-  hideSummary();
-  renderSummaryLists();
-  summaryBtn.disabled = false;
   replayBtn.disabled = true;
   stopBtn.disabled = true;
   answerInputEl.value = "";
@@ -471,14 +444,10 @@ sourceFilterEl.addEventListener("change", () => {
   qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
   srcBadgeEl.style.display = "none";
   answerBtn.disabled = true;
-  summaryBtn.disabled = true;
-  hideSummary();
-  summaryCoreList.innerHTML = "";
-  summaryRespList.innerHTML = "";
   replayBtn.disabled = true;
   stopBtn.disabled = true;
   answerBox.classList.remove("show");
-  answerBox.textContent = "";
+  answerBox.innerHTML = "";
   answerInputEl.value = "";
   answerInputEl.disabled = true;
   checkBtn.disabled = true;
@@ -534,21 +503,46 @@ resetBtn.addEventListener("click", () => {
   resetTimerState();
 });
 
+function renderAnswer(item) {
+  answerBox.innerHTML = "";
+  if (!item) return;
+  const hasStruct = item.core || item.resp;
+  if (hasStruct) {
+    if (item.core) {
+      const h1 = document.createElement("div");
+      h1.className = "answer-sec-title";
+      h1.textContent = "■ 핵심정리";
+      const p1 = document.createElement("div");
+      p1.className = "answer-sec-body";
+      p1.textContent = item.core;
+      answerBox.appendChild(h1);
+      answerBox.appendChild(p1);
+    }
+    if (item.resp) {
+      const h2 = document.createElement("div");
+      h2.className = "answer-sec-title";
+      h2.textContent = "■ 대응방안";
+      const p2 = document.createElement("div");
+      p2.className = "answer-sec-body";
+      p2.textContent = item.resp;
+      answerBox.appendChild(h2);
+      answerBox.appendChild(p2);
+    }
+  } else {
+    answerBox.textContent = item.a || "";
+  }
+}
+
 answerBtn.addEventListener("click", () => {
   const showing = answerBox.classList.toggle("show");
   answerBtn.textContent = showing ? "모범답안 숨기기" : "모범답안 보기";
   if (showing && current !== null) {
-    answerBox.textContent = current.a;
+    renderAnswer(current);
     replayBtn.disabled = false;
     if (autoReadChk.checked) speakQA(current);
   } else {
     stopSpeaking();
   }
-});
-
-summaryBtn.addEventListener("click", () => {
-  const showing = summaryBox.classList.toggle("show");
-  summaryBtn.textContent = showing ? "핵심정리·대응방안 카드 숨기기" : "핵심정리·대응방안 카드 보기";
 });
 
 replayBtn.addEventListener("click", () => {

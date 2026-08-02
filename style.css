@@ -197,43 +197,20 @@
     font-weight: bold;
   }
 
-  /* ===== 핵심정리·대응방안 카드 ===== */
-  .summary-card { text-align: center; }
-  .summary-box {
-    display: none;
-    margin-top: 14px;
-    gap: 12px;
-    text-align: left;
-  }
-  .summary-box.show { display: grid; grid-template-columns: 1fr 1fr; }
-  .summary-col {
-    padding: 14px 16px;
-    border-radius: 10px;
-    background: #F4F3FB;
-    border: 1px solid var(--border);
-  }
-  .summary-core { background: #EEEDFE; }
-  .summary-resp { background: #FAEEDA; }
-  .summary-title {
-    font-size: 12px;
-    font-weight: bold;
-    letter-spacing: 1px;
-    margin-bottom: 8px;
-    color: var(--purple-dark);
-  }
-  .summary-resp .summary-title { color: #854F0B; }
-  .summary-col ul {
-    margin: 0;
-    padding-left: 18px;
-    font-size: 13px;
-    line-height: 1.7;
-    color: var(--text);
-  }
-  .summary-col li { margin-bottom: 6px; }
-  .summary-col li:last-child { margin-bottom: 0; }
-  .summary-hint { display: none; margin-top: 10px; }
-  .summary-box.show + .summary-hint { display: block; }
-
-  @media (max-width: 560px) {
-    .summary-box.show { grid-template-columns: 1fr; }
-  }
+/* 문장연결형 모범답안 소제목 */
+.model-answer .answer-sec-title {
+  font-weight: 700;
+  color: #1e40af;
+  margin: 10px 0 6px;
+  font-size: 14.5px;
+  letter-spacing: -0.2px;
+}
+.model-answer .answer-sec-title:first-child {
+  margin-top: 0;
+}
+.model-answer .answer-sec-body {
+  white-space: pre-wrap;
+  line-height: 1.75;
+  color: #111827;
+  margin-bottom: 4px;
+}
