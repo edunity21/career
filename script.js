@@ -42,6 +42,10 @@ const checkBtn = document.getElementById("checkBtn");
 const sttBtn = document.getElementById("sttBtn");
 const clearBtn = document.getElementById("clearBtn");
 const checkResultEl = document.getElementById("checkResult");
+const summaryBtn = document.getElementById("summaryBtn");
+const summaryBox = document.getElementById("summaryBox");
+const summaryCoreList = document.getElementById("summaryCoreList");
+const summaryRespList = document.getElementById("summaryRespList");
 
 function buildFilterOptions() {
   sourceFilterEl.innerHTML = "";
@@ -258,6 +262,33 @@ function renderKeywordHints(matchedSet) {
   kwLabelEl.style.display = kws.length ? "block" : "none";
 }
 
+function renderSummaryLists() {
+  summaryCoreList.innerHTML = "";
+  summaryRespList.innerHTML = "";
+  const core = (current && Array.isArray(current.core)) ? current.core : [];
+  const resp = (current && Array.isArray(current.resp)) ? current.resp : [];
+  core.forEach(function (t) {
+    const li = document.createElement("li");
+    li.textContent = t;
+    summaryCoreList.appendChild(li);
+  });
+  resp.forEach(function (t) {
+    const li = document.createElement("li");
+    li.textContent = t;
+    summaryRespList.appendChild(li);
+  });
+  if (core.length === 0 && resp.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "이 문항에는 등록된 핵심정리·대응방안 카드가 없습니다.";
+    summaryCoreList.appendChild(li);
+  }
+}
+
+function hideSummary() {
+  summaryBox.classList.remove("show");
+  summaryBtn.textContent = "핵심정리·대응방안 카드 보기";
+}
+
 function checkKeywords() {
   if (!current) return;
   const kws = current.keywords || [];
@@ -371,6 +402,9 @@ function showQuestion(set, idx, drawnCount) {
   answerBox.textContent = "";
   answerBtn.textContent = "모범답안 보기";
   answerBtn.disabled = false;
+  hideSummary();
+  renderSummaryLists();
+  summaryBtn.disabled = false;
   replayBtn.disabled = true;
   stopBtn.disabled = true;
   answerInputEl.value = "";
@@ -437,6 +471,10 @@ sourceFilterEl.addEventListener("change", () => {
   qtextEl.textContent = "\"문항 뽑기\" 버튼을 눌러 시작하세요.";
   srcBadgeEl.style.display = "none";
   answerBtn.disabled = true;
+  summaryBtn.disabled = true;
+  hideSummary();
+  summaryCoreList.innerHTML = "";
+  summaryRespList.innerHTML = "";
   replayBtn.disabled = true;
   stopBtn.disabled = true;
   answerBox.classList.remove("show");
@@ -506,6 +544,11 @@ answerBtn.addEventListener("click", () => {
   } else {
     stopSpeaking();
   }
+});
+
+summaryBtn.addEventListener("click", () => {
+  const showing = summaryBox.classList.toggle("show");
+  summaryBtn.textContent = showing ? "핵심정리·대응방안 카드 숨기기" : "핵심정리·대응방안 카드 보기";
 });
 
 replayBtn.addEventListener("click", () => {
